@@ -119,8 +119,8 @@ class ElasticSearchCheck(NagiosCheck):
         # Request a bunch of useful numbers that we export as perfdata.  
         # Details like the number of get, search, and indexing 
         # operations come from here.
-        es_stats = get_json(r'http://%s:%d/_cluster/nodes/_local/'
-                             'stats?all=true' % (host, port))
+        es_stats = get_json(r'http://%s:%d/_nodes/stats' %
+                            (host, port))
 
         myid = es_stats['nodes'].keys()[0]
 
@@ -219,8 +219,8 @@ class ElasticSearchCheck(NagiosCheck):
         for i in indices:
             idx_stns = indices[i]['settings']
             idx = ESIndex(i,
-                          int(idx_stns['index.number_of_shards']),
-                          int(idx_stns['index.number_of_replicas']))
+                          int(idx_stns['index']['number_of_shards']),
+                          int(idx_stns['index']['number_of_replicas']))
 
             name_index_map[i] = idx
 
