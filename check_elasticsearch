@@ -147,10 +147,21 @@ class ElasticSearchCheck(NagiosCheck):
         # Request a bunch of useful numbers that we export as perfdata.  
         # Details like the number of get, search, and indexing 
         # operations come from here.
-        es_stats = get_json(r'http://%s:%d/%s_nodes/_local/'
-                            'stats?all=true' % (host, port, prefix))
+        if version(es_version) < version('5.0.0'):
+            es_local_node_stats = get_json(r'http://%s:%d/%s_nodes/_local/'
+                                'stats?all=true' % (host, port, prefix))
+        else:
+            es_local_node_stats = get_json(r'http://%s:%d/%s_nodes/_local/'
+                                'stats' % (host, port, prefix))
 
-        myid = es_stats['nodes'].keys()[0]
+        if version(es_version) < version('5.0.0'):
+            es_all_node_stats = get_json(r'http://%s:%d/%s_nodes/'
+                                'stats?all=true' % (host, port, prefix))
+        else:
+            es_all_node_stats = get_json(r'http://%s:%d/%s_nodes/'
+                                'stats' % (host, port, prefix))
+
+        myid = es_local_node_stats['nodes'].keys()[0]
 
         n_nodes = es_health['number_of_nodes']
         n_dnodes = es_health['number_of_data_nodes']
@@ -158,28 +169,33 @@ class ElasticSearchCheck(NagiosCheck):
         # Unlike n_dnodes (the number of data nodes), we must compute 
         # the number of master-eligible nodes ourselves.
         n_mnodes = 0
-        for esid in es_state['nodes']:
-            master_elig = True
+        if version(es_version) < version('5.4.0'):
+            for esid in es_state['nodes']:
+                master_elig = True
 
-            # ES will never elect 'client' nodes as masters.
-            try:
-                master_elig = not (booleanise(
-                    es_state['nodes'][esid]['attributes']
-                    ['client']))
-            except KeyError, e:
-                if e.args[0] != 'client':
-                    raise
+                # ES will never elect 'client' nodes as masters.
+                try:
+                    master_elig = not (booleanise(
+                        es_state['nodes'][esid]['attributes']
+                        ['client']))
+                except KeyError, e:
+                    if e.args[0] != 'client':
+                        raise
 
-            try:
-                master_elig = (booleanise(
-                    es_state['nodes'][esid]['attributes']
-                    ['master']))
-            except KeyError, e:
-                if e.args[0] != 'master':
-                    raise
+                try:
+                    master_elig = (booleanise(
+                        es_state['nodes'][esid]['attributes']
+                        ['master']))
+                except KeyError, e:
+                    if e.args[0] != 'master':
+                        raise
 
-            if master_elig:
-                n_mnodes += 1
+                if master_elig:
+                    n_mnodes += 1
+        else:
+            for esid in es_all_node_stats['nodes']:
+                if 'master' in es_all_node_stats['nodes'][esid]['roles']:
+                  n_mnodes += 1
 
         n_active_shards = es_health['active_shards']
         n_relocating_shards = es_health['relocating_shards']
@@ -212,10 +228,14 @@ class ElasticSearchCheck(NagiosCheck):
         # - node_esid_map
         # - node_location_map (data nodes only)
         #
-        nodes = es_state['nodes']
+        nodes = es_all_node_stats['nodes']
         for n in nodes:
             name = nodes[n]['name']
-            attrs = nodes[n]['attributes']
+            roles = nodes[n]['roles']
+            if 'attributes' in nodes[n]:
+              attrs = nodes[n]['attributes']
+            else:
+              attrs = {}
             node = ESNode(name, n, attrs)
 
             name_node_map[name] = node
@@ -223,7 +243,7 @@ class ElasticSearchCheck(NagiosCheck):
             node_esid_map[node] = n
             node_shard_map[node] = []
 
-            if len(failure_domain) > 0:
+            if len(failure_domain) > 0 and 'data' in roles:
                 node_location_map[node] = tuple()
                 try:
                     node_location_map[node] = (
@@ -409,7 +429,7 @@ class ElasticSearchCheck(NagiosCheck):
             ("heap_used", "jvm.mem.heap_used_percent", "%"),
         )
 
-        dict2perfdata(es_stats['nodes'][myid], metrics)
+        dict2perfdata(es_local_node_stats['nodes'][myid], metrics)
 
         #
         # Assertions
