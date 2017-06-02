@@ -96,7 +96,7 @@ class ElasticSearchCheck(NagiosCheck):
         host = opts.host or "localhost"
         port = int(opts.port or '9200')
         prefix = opts.prefix or ""
-        if not prefix.endswith('/'):
+        if len(prefix) > 0 and not prefix.endswith('/'):
             prefix += '/'
 
         failure_domain = []
